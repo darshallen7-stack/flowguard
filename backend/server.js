@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const db = require('./database');
 const { sendEmail } = require('./mailer');
+const { register, login, requireAuth } = require('./auth');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -15,8 +16,33 @@ app.get('/health', (req, res) => {
   res.json({ status: 'FlowGuard is running', timestamp: new Date() });
 });
 
+// Register a new user
+app.post('/api/auth/register', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  try {
+    const result = register(username, password);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Login
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+  try {
+    const result = login(username, password);
+    res.json(result);
+  } catch (err) {
+    res.status(401).json({ error: err.message });
+  }
+});
+
 // Get all workflows
-app.get('/api/workflows', (req, res) => {
+app.get('/api/workflows', requireAuth, (req, res) => {
   const rows = db.prepare('SELECT * FROM workflows ORDER BY created_at DESC').all();
   const workflows = rows.map(r => ({
     ...r,
@@ -27,7 +53,7 @@ app.get('/api/workflows', (req, res) => {
 });
 
 // Create workflow
-app.post('/api/workflows', (req, res) => {
+app.post('/api/workflows', requireAuth, (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   const id = Date.now().toString();
@@ -40,14 +66,14 @@ app.post('/api/workflows', (req, res) => {
 });
 
 // Get one workflow
-app.get('/api/workflows/:id', (req, res) => {
+app.get('/api/workflows/:id', requireAuth, (req, res) => {
   const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
   res.json({ ...row, nodes: JSON.parse(row.nodes), edges: JSON.parse(row.edges) });
 });
 
 // Save workflow (update nodes and edges)
-app.put('/api/workflows/:id', (req, res) => {
+app.put('/api/workflows/:id', requireAuth, (req, res) => {
   const { nodes, edges } = req.body;
   const result = db.prepare(`
     UPDATE workflows
@@ -60,7 +86,7 @@ app.put('/api/workflows/:id', (req, res) => {
 });
 
 // Execute workflow
-app.post('/api/workflows/:id/execute', async (req, res) => {
+app.post('/api/workflows/:id/execute', requireAuth, async (req, res) => {
   const row = db.prepare('SELECT * FROM workflows WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
 
@@ -99,13 +125,11 @@ app.post('/api/workflows/:id/execute', async (req, res) => {
     }
   }
 
-  // Log this execution
   db.prepare(`
     INSERT INTO execution_logs (workflow_id, results)
     VALUES (?, ?)
   `).run(row.id, JSON.stringify(results));
 
-  // Update last_run
   db.prepare(`
     UPDATE workflows SET status = 'executed', last_run = datetime('now') WHERE id = ?
   `).run(row.id);
@@ -117,8 +141,8 @@ app.post('/api/workflows/:id/execute', async (req, res) => {
   });
 });
 
-// Get execution history for a workflow
-app.get('/api/workflows/:id/logs', (req, res) => {
+// Get execution logs
+app.get('/api/workflows/:id/logs', requireAuth, (req, res) => {
   const logs = db.prepare(`
     SELECT * FROM execution_logs WHERE workflow_id = ? ORDER BY ran_at DESC LIMIT 20
   `).all(req.params.id);
@@ -126,7 +150,7 @@ app.get('/api/workflows/:id/logs', (req, res) => {
 });
 
 // Delete workflow
-app.delete('/api/workflows/:id', (req, res) => {
+app.delete('/api/workflows/:id', requireAuth, (req, res) => {
   const result = db.prepare('DELETE FROM workflows WHERE id = ?').run(req.params.id);
   if (result.changes === 0) return res.status(404).json({ error: 'Not found' });
   res.json({ message: 'Deleted' });

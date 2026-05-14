@@ -1,19 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import Canvas from './components/Canvas';
 import Sidebar from './components/Sidebar';
+import Login from './components/Login';
 import { getWorkflows, createWorkflow } from './api';
 import './App.css';
 
 function App() {
+  const [token, setToken] = useState(localStorage.getItem('fg_token'));
+  const [currentUser, setCurrentUser] = useState(localStorage.getItem('fg_user'));
   const [workflows, setWorkflows] = useState([]);
   const [activeWorkflow, setActiveWorkflow] = useState(null);
-  const [status, setStatus] = useState('');
 
   useEffect(() => {
-    getWorkflows().then(setWorkflows).catch(() => {
-      setStatus('⚠️ Backend offline — changes will not be saved');
-    });
-  }, []);
+    if (token) {
+      getWorkflows().then(setWorkflows).catch(console.error);
+    }
+  }, [token]);
+
+  const handleLogin = (tok, user) => {
+    setToken(tok);
+    setCurrentUser(user);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('fg_token');
+    localStorage.removeItem('fg_user');
+    setToken(null);
+    setCurrentUser(null);
+    setWorkflows([]);
+    setActiveWorkflow(null);
+  };
 
   const handleCreate = async (name) => {
     try {
@@ -27,12 +43,20 @@ function App() {
     }
   };
 
+  if (!token) return <Login onLogin={handleLogin} />;
+
   return (
     <div className="app">
       <header className="app-header">
         <h1>⚡ FlowGuard</h1>
         <span className="tagline">Compliance-Safe Workflow Automation</span>
-        {status && <span className="status-warn">{status}</span>}
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: '13px', color: '#94a3b8' }}>👤 {currentUser}</span>
+        <button onClick={handleLogout} style={{
+          padding: '6px 14px', borderRadius: '6px',
+          background: '#2d3148', border: '1px solid #4a5568',
+          color: '#e2e8f0', cursor: 'pointer', fontSize: '13px'
+        }}>Log Out</button>
       </header>
       <div className="app-body">
         <Sidebar
